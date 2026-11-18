@@ -3,8 +3,7 @@
     color: #333;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    overflow-y: auto; /* Скролл только внутри контейнера */
+    padding: 10px;
 }
 
 /* Кнопки режимов */
@@ -48,7 +47,6 @@
 }
 .wod-chat-body { padding: 8px; }
 .wod-chat-pool, .wod-chat-difficulty { font-size: 0.9em; margin-bottom: 4px; color: #555; }
-.wod-chat-successes { font-weight: bold; margin-top: 5px; color: #2e6b4e; font-size: 1.1em; }
 .wod-chat-damage-total { margin-top: 10px; font-weight: bold; font-size: 1.2em; color: #8b0000; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; }
 .wod-chat-dice { margin-top: 8px; text-align: center; line-height: 1.5; }
 
@@ -58,9 +56,3 @@
 }
 .wod-diff-btn:hover { background: #2c6b81; }
 .wod-diff-btn.active { background: #10b981; border-color: #34d399; box-shadow: 0 0 10px rgba(16, 185, 129, 0.8); }
-
-/* Фикс для окна */
-.wod-firearms-dialog .dialog-content {
-    overflow-y: hidden !important; /* Убираем скролл у самого окна */
-    padding: 0 !important;
-}
