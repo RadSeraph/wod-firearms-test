@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.3.0 - Воля и поле урона)
+// Файл: scripts/main.js (Версия 1.3.1 - Флавор Воли)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -193,8 +193,11 @@ function setupFirearmsLogic(html, isGM) {
 
             // --- ВОЛЯ СРАБАТЫВАЕТ ДО ТЕКСТА ---
             if (useWill) {
+                // Флавор появляется ТОЛЬКО если кубы не дали успехов (rawSucc === 0)
+                if (rawSucc === 0) {
+                    willText = `<div style="color: #2c6b81; font-weight: bold; margin-top: 5px; font-style: italic;">Лишь сильная воля помогает преодолеть трудности!</div>`;
+                }
                 netSucc += 1;
-                willText = `<div style="color: #2c6b81; font-weight: bold; margin-top: 5px; font-style: italic;">Лишь сильная воля помогает преодолеть трудности!</div>`;
                 const curWP = actor.system.advantages?.willpower?.temporary || 0;
                 await actor.update({ "system.advantages.willpower.temporary": Math.max(0, curWP - 1) });
             }
@@ -286,7 +289,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                 try {
                     const defenseSucc = Number(html.find('.wod-defense-succ').val()) || 0;
                     const finalDiff = Number(html.find('.wod-dmg-diff-input').val());
-                    const dmgManualBonus = Number(html.find('.wod-dmg-manual-bonus').val()) || 0; // НОВОЕ ПОЛЕ
+                    const dmgManualBonus = Number(html.find('.wod-dmg-manual-bonus').val()) || 0;
                     
                     html.closest('.dialog').find('.header-button.close').click();
 
@@ -298,7 +301,6 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                     }
 
                     const bonusDice = Math.max(0, netAttackSucc - 1);
-                    // ИСПОЛЬЗУЕМ НОВОЕ ПОЛЕ dmgManualBonus
                     const finalDmgPool = Math.max(1, baseDamage + bonusDice + dmgManualBonus);
 
                     const dmgRoll = new Roll(`${finalDmgPool}d10`);
