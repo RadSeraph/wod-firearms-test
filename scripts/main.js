@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.3.1 - Флавор Воли)
+// Файл: scripts/main.js (Версия 1.3.5 - Финал)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -162,11 +162,17 @@ function setupFirearmsLogic(html, isGM) {
             const accuracy = weapon.system.attack?.accuracy || 0;
             const specialty = actor.system.abilities?.[abilityKey]?.speciality || "";
             
-            const basePool = Math.max(1, attrVal + abilityVal + accuracy + config.bonus);
-            const finalPool = Math.max(1, basePool + manualBonus);
+            const basePool = Math.max(0, attrVal + abilityVal + accuracy + config.bonus);
+            const finalPool = Math.max(0, Math.floor(basePool + manualBonus));
 
-            // --- АВТОЗАКРЫТИЕ ОКНА ---
             html.closest('.dialog').find('.header-button.close').click();
+
+            if (finalPool <= 0) {
+                const failData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> пытается выстрелить из ${weapon.name}, но пул кубов равен 0. Действие провалено.</p>` };
+                if (isBlind) { failData.blind = true; failData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
+                await ChatMessage.create(failData);
+                return;
+            }
 
             let newClipValue = clip.value - (config.cost === "ALL" ? clip.value : config.cost);
             if (newClipValue < 0) newClipValue = 0;
@@ -191,9 +197,7 @@ function setupFirearmsLogic(html, isGM) {
             let netSucc = Math.max(0, rawSucc - ones);
             let willText = "";
 
-            // --- ВОЛЯ СРАБАТЫВАЕТ ДО ТЕКСТА ---
             if (useWill) {
-                // Флавор появляется ТОЛЬКО если кубы не дали успехов (rawSucc === 0)
                 if (rawSucc === 0) {
                     willText = `<div style="color: #2c6b81; font-weight: bold; margin-top: 5px; font-style: italic;">Лишь сильная воля помогает преодолеть трудности!</div>`;
                 }
@@ -301,7 +305,14 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                     }
 
                     const bonusDice = Math.max(0, netAttackSucc - 1);
-                    const finalDmgPool = Math.max(1, baseDamage + bonusDice + dmgManualBonus);
+                    
+                    // Сначала прибавляем все положительные модификаторы, затем вычитаем штрафы
+                    let totalPool = baseDamage + bonusDice;
+                    if (dmgManualBonus > 0) totalPool += dmgManualBonus; // Бонусы вперед
+                    else if (dmgManualBonus < 0) totalPool += dmgManualBonus; // Штрафы назад
+                    
+                    // Защита: урон не может быть меньше 1
+                    const finalDmgPool = Math.max(1, Math.floor(totalPool));
 
                     const dmgRoll = new Roll(`${finalDmgPool}d10`);
                     await dmgRoll.evaluate();
@@ -313,12 +324,13 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                         if (isSucc) dmgSucc++;
                         dmgDiceHTML += createDieHTML(die.result, isSucc ? 'success' : 'neutral');
                     }
+                    
                     dmgSucc = Math.max(1, dmgSucc);
 
                     const damageHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-damage.html`, {
                         actorName: actor.name,
                         weaponName: weapon.name,
-                        pool: `Базовый (${baseDamage}) + Успехи (${bonusDice}) ${dmgManualBonus ? `+ Вручную (${dmgManualBonus})` : ''} = ${finalDmgPool}`,
+                        pool: `Базовый (${baseDamage}) + Бонус (${bonusDice}) ${dmgManualBonus ? `${dmgManualBonus > 0 ? '+' : ''}${dmgManualBonus} (Вручную)` : ''} = ${finalDmgPool}`,
                         difficulty: finalDiff,
                         diceHTML: dmgDiceHTML,
                         damageTotal: dmgSucc,
