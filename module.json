@@ -2,7 +2,7 @@
   "id": "wod-firearms-test",
   "title": "WoD Firearms (Test)",
   "description": "Тестовый модуль для стрельбы.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "compatibility": {
     "minimum": "14",
     "verified": "14"
