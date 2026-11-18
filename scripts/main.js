@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.2.0 - Объединенная панель)
+// Файл: scripts/main.js (Версия 1.2.1 - Финальные правки)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -40,12 +40,18 @@ Hooks.on("ready", () => {
 async function openFirearmsPanel() {
     const isGM = game.user.isGM;
     const template = await renderTemplate(`modules/${MODULE_ID}/templates/panel.html`, {});
+    
     new Dialog({
         title: "Стрельба",
         content: template,
         buttons: { close: { label: "Закрыть" } },
         render: (html) => setupFirearmsLogic(html, isGM)
-    }, { width: 450, height: 650, resizable: true }).render(true);
+    }, { 
+        width: 450, 
+        height: 750, 
+        resizable: true, 
+        classes: ["wod-firearms-dialog"] 
+    }).render(true);
 }
 
 function setupFirearmsLogic(html, isGM) {
@@ -59,11 +65,6 @@ function setupFirearmsLogic(html, isGM) {
         if (actor) html.find('#firearms-actor-select').html(`<option value="${actor.id}">${actor.name}</option>`);
     }
 
-    let currentBasePool = 0;
-    let currentFinalPool = 0;
-    let currentSpecialty = "";
-
-    // Динамическая сложность
     let diffBtnsHTML = "";
     for (let i = 3; i <= 10; i++) diffBtnsHTML += `<button type="button" class="wod-diff-btn" data-val="${i}" style="flex:1; padding:5px 0; background:#1f5c73; color:white; border:1px solid #333; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">${i}</button>`;
     html.find('.wod-diff-container').html(diffBtnsHTML);
@@ -107,7 +108,6 @@ function setupFirearmsLogic(html, isGM) {
                 container.find('.wod-mode-btn').removeClass('active').css({background: 'rgba(0,0,0,0.05)', color: '#333', borderColor: '#999'});
                 $(this).addClass('active').css({background: '#2c6b81', color: '#fff', borderColor: '#5bb9d6'});
                 
-                // Автоматически ставим сложность и обновляем инфу
                 const newDiff = weaponDiff + mode.diffMod;
                 html.find('.wod-diff-btn').removeClass('active').css({background: '#1f5c73', borderColor: '#333'});
                 html.find(`.wod-diff-btn[data-val="${newDiff}"]`).addClass('active').css({background: '#10b981', borderColor: '#34d399'});
@@ -159,7 +159,6 @@ function setupFirearmsLogic(html, isGM) {
             const finalDiff = Number(html.find('.wod-diff-input').val());
             const damageType = html.find('.wod-dmg-type-btn.active').data('val');
 
-            // Подготовка данных
             const attrKey = weapon.system.attack?.attribute || "dexterity";
             const abilityKey = weapon.system.attack?.ability || "firearms";
             const attrObj = actor.system.attributes?.[attrKey] || {};
@@ -173,15 +172,12 @@ function setupFirearmsLogic(html, isGM) {
 
             html.closest('.dialog').find('.header-button.close').click();
 
-            // Списание патронов
             let newClipValue = clip.value - (config.cost === "ALL" ? clip.value : config.cost);
             if (newClipValue < 0) newClipValue = 0;
             await weapon.update({ "system.clip.value": newClipValue });
             
-            // Звук (v14 fix)
             if (game.audio) foundry.audio.AudioHelper.play({ src: "sounds/dice.wav", volume: 0.8, autoplay: true, loop: false }, true);
 
-            // Бросок атаки
             const roll = new Roll(`${finalPool}d10`);
             await roll.evaluate();
             if (game.dice3d && !isBlind) await game.dice3d.showForRoll(roll, game.user, true, null, false);
@@ -213,7 +209,6 @@ function setupFirearmsLogic(html, isGM) {
                 weaponName: weapon.name,
                 pool: `${attrKey} (${attrVal}) + ${abilityKey} (${abilityVal}) ${accuracy ? `+ Acc (${accuracy})` : ''} ${config.bonus ? `+ Режим (${config.bonus})` : ''} ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalPool}`,
                 difficulty: finalDiff,
-                successes: netSucc,
                 diceHTML: diceHTML + resultText
             });
 
@@ -221,7 +216,6 @@ function setupFirearmsLogic(html, isGM) {
             if (isBlind) { chatData.blind = true; chatData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
             await ChatMessage.create(chatData);
 
-            // Если попал — открываем второе окно Урона
             if (netSucc > 0) {
                 setTimeout(() => {
                     openDamageDialog(actor, weapon, netSucc, damageType, manualBonus, isBlind);
@@ -237,9 +231,6 @@ function setupFirearmsLogic(html, isGM) {
     updateWeapons();
 }
 
-// ==========================================
-// ОКНО УРОНА (Второе)
-// ==========================================
 async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manualBonus, isBlindAttack) {
     const baseDamage = weapon.system.damage?.bonus || 0;
     
@@ -248,7 +239,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
 
     const dialogContent = `
         <div style="font-family: 'Signika', sans-serif; padding: 5px;">
-            <h3 style="margin-top: 0; color: #8b0000; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Урон: ${weapon.name}</h3>
+            <h3 style="margin-top: 0; color: #8b0000; border-bottom: 1px solid #ccc; padding-bottom: 5px;">${weapon.name}</h3>
             
             <div style="margin-bottom: 10px; font-size: 0.95em;">
                 <strong>Базовый урон:</strong> ${baseDamage} (${damageType})<br>
@@ -274,7 +265,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
     `;
 
     new Dialog({
-        title: `Урон: ${weapon.name}`,
+        title: `${weapon.name}`,
         content: dialogContent,
         buttons: {},
         render: (html) => {
