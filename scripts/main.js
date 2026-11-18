@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.2.1 - Финальные правки)
+// Файл: scripts/main.js (Версия 1.2.2 - Автозакрытие)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -41,20 +41,17 @@ async function openFirearmsPanel() {
     const isGM = game.user.isGM;
     const template = await renderTemplate(`modules/${MODULE_ID}/templates/panel.html`, {});
     
+    // Убрана жесткая высота, окно подстроится само
     new Dialog({
         title: "Стрельба",
         content: template,
         buttons: { close: { label: "Закрыть" } },
         render: (html) => setupFirearmsLogic(html, isGM)
-    }, { 
-        width: 450, 
-        height: 750, 
-        resizable: true, 
-        classes: ["wod-firearms-dialog"] 
-    }).render(true);
+    }, { width: 450, resizable: true }).render(true);
 }
 
 function setupFirearmsLogic(html, isGM) {
+    // ... (Вся логика инициализации селектов и режимов остается прежней) ...
     if (isGM) {
         let npcOptions = `<option value="">Не выбрано</option>`;
         game.actors.filter(a => a.type === "Vampire" || a.type === "Mortal").sort((a,b) => a.name.localeCompare(b.name)).forEach(n => npcOptions += `<option value="${n.id}">${n.name}</option>`);
@@ -170,6 +167,7 @@ function setupFirearmsLogic(html, isGM) {
             const basePool = Math.max(1, attrVal + abilityVal + accuracy + config.bonus);
             const finalPool = Math.max(1, basePool + manualBonus);
 
+            // --- АВТОЗАКРЫТИЕ ОКНА ---
             html.closest('.dialog').find('.header-button.close').click();
 
             let newClipValue = clip.value - (config.cost === "ALL" ? clip.value : config.cost);
@@ -325,5 +323,5 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
                 }
             });
         }
-    }, { width: 400, height: 350, resizable: false }).render(true);
+    }, { width: 400, resizable: false }).render(true);
 }
