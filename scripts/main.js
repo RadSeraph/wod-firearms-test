@@ -1,64 +1,46 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 0.2.0 - Финальная)
+// Файл: scripts/main.js (Версия 0.3.0 - Объединенное окно)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
 
-// Конфигурация режимов стрельбы
 const FIRE_MODES = {
     single: { label: "Одиночный", cost: 1, bonus: 0, diffMod: 0, isBurst: false },
     short:  { label: "Короткая очередь", cost: 3, bonus: 2, diffMod: 1, isBurst: true },
     long:   { label: "Длинная очередь", cost: "ALL", bonus: 10, diffMod: 2, isBurst: true }
 };
 
-// Вспомогательная функция для кубов
-function createDieHTML(value, isSuccess, isOne) {
-    let gradStart = '#7f8c8d', gradEnd = '#2c3e50', strokeColor = '#5a5a5a';
-    if (isSuccess) {
-        gradStart = '#2ecc71'; gradEnd = '#145a32'; strokeColor = '#1a7a1a';
-    } else if (isOne) {
-        gradStart = '#e74c3c'; gradEnd = '#641e16'; strokeColor = '#c00000';
-    }
-    return `<span class="wod-die" style="background: linear-gradient(145deg, ${gradStart}, ${gradEnd}); border: 1px solid ${strokeColor};">${value}</span>`;
+// Та самая функция граненых кубов из старого модуля
+function createDieHTML(value, resultType) {
+    let gradStart, gradEnd, strokeColor;
+    if (resultType === 'success') { gradStart = '#2ecc71'; gradEnd = '#145a32'; strokeColor = '#1a7a1a'; }
+    else if (resultType === 'fail') { gradStart = '#e74c3c'; gradEnd = '#641e16'; strokeColor = '#c00000'; }
+    else if (resultType === 'spec') { gradStart = '#f1c40f'; gradEnd = '#7d6608'; strokeColor = '#d4a017'; }
+    else { gradStart = '#7f8c8d'; gradEnd = '#2c3e50'; strokeColor = '#5a5a5a'; }
+
+    return `<span style="display: inline-block; width: 28px; height: 32px; background: linear-gradient(145deg, ${gradStart}, ${gradEnd}); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); color: white; font-weight: bold; font-size: 16px; line-height: 32px; text-align: center; margin: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.5); border: 1px solid ${strokeColor};">${value}</span>`;
 }
 
-// ==========================================
-// 1. РАДИАЛЬНОЕ МЕНЮ
-// ==========================================
 Hooks.on("ready", () => {
     if (document.getElementById("wod-firearms-menu")) return;
-
     const container = document.createElement("div");
     container.id = "wod-firearms-menu";
     container.style.cssText = "position: fixed; top: 55%; left: 50px; width: 50px; height: 50px; z-index: 10; pointer-events: none;";
-
     const btn = document.createElement("div");
     btn.innerHTML = `<i class="fas fa-crosshairs"></i>`;
     btn.title = "Стрельба";
-    btn.style.cssText = `
-        width: 45px; height: 45px; background: #8b0000; color: white;
-        border-radius: 50%; display: flex; align-items: center; justify-content: center;
-        font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.6);
-        border: 2px solid #ff4444; transition: all 0.2s ease;
-        z-index: 2; pointer-events: auto;
-    `;
+    btn.style.cssText = `width: 45px; height: 45px; background: #8b0000; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.6); border: 2px solid #ff4444; transition: all 0.2s ease; z-index: 2; pointer-events: auto;`;
     btn.onmouseenter = () => { btn.style.transform = "scale(1.2)"; btn.style.background = "#a80000"; };
     btn.onmouseleave = () => { btn.style.transform = "scale(1)"; btn.style.background = "#8b0000"; };
-    
     btn.addEventListener("click", () => openFirearmsPanel());
-
     container.appendChild(btn);
     document.body.appendChild(container);
 });
 
-// ==========================================
-// 2. ПАНЕЛЬ СТРЕЛЬБЫ
-// ==========================================
 async function openFirearmsPanel() {
     const isGM = game.user.isGM;
     const template = await renderTemplate(`modules/${MODULE_ID}/templates/panel.html`, {});
-    
     new Dialog({
         title: "Стрельба",
         content: template,
@@ -70,23 +52,18 @@ async function openFirearmsPanel() {
 function setupFirearmsLogic(html, isGM) {
     if (isGM) {
         let npcOptions = `<option value="">Не выбрано</option>`;
-        game.actors.filter(a => a.type === "Vampire" || a.type === "Mortal").sort((a,b) => a.name.localeCompare(b.name)).forEach(n => {
-            npcOptions += `<option value="${n.id}">${n.name}</option>`;
-        });
+        game.actors.filter(a => a.type === "Vampire" || a.type === "Mortal").sort((a,b) => a.name.localeCompare(b.name)).forEach(n => npcOptions += `<option value="${n.id}">${n.name}</option>`);
         html.find('#firearms-npc-select').html(npcOptions);
         html.find('#firearms-npc-block').show();
     } else {
         const actor = game.user.character;
-        if (actor) {
-            html.find('#firearms-actor-select').html(`<option value="${actor.id}">${actor.name}</option>`);
-        }
+        if (actor) html.find('#firearms-actor-select').html(`<option value="${actor.id}">${actor.name}</option>`);
     }
 
     const updateWeapons = () => {
         const actorId = isGM ? html.find('#firearms-npc-select').val() : game.user.character?.id;
         const actor = game.actors.get(actorId);
         if (!actor) return;
-
         const weapons = actor.items.filter(i => i.type === "Ranged Weapon");
         let options = `<option value="">Не выбрано</option>`;
         weapons.forEach(w => options += `<option value="${w.id}">${w.name}</option>`);
@@ -105,15 +82,10 @@ function setupFirearmsLogic(html, isGM) {
         const container = html.find('#firearms-mode-buttons');
         container.empty();
         if (!weapon) return;
-
         const hasBurst = weapon.system.mode?.hasburst;
         const hasFullAuto = weapon.system.mode?.hasfullauto;
-
         Object.entries(FIRE_MODES).forEach(([key, mode]) => {
-            let isDisabled = false;
-            if (key === "short" && !hasBurst) isDisabled = true;
-            if (key === "long" && !hasFullAuto) isDisabled = true;
-
+            let isDisabled = (key === "short" && !hasBurst) || (key === "long" && !hasFullAuto);
             const btn = $(`<button type="button" class="wod-mode-btn ${key === 'single' ? 'active' : ''}" data-mode="${key}" ${isDisabled ? 'disabled' : ''}>${mode.label}</button>`);
             btn.click(function() {
                 if ($(this).prop('disabled')) return;
@@ -137,11 +109,9 @@ function setupFirearmsLogic(html, isGM) {
         const actorId = isGM ? html.find('#firearms-npc-select').val() : game.user.character?.id;
         const actor = game.actors.get(actorId);
         if (!actor) return ui.notifications.error("Выберите персонажа!");
-
         const weaponId = html.find('#firearms-weapon-select').val();
         const weapon = actor.items.get(weaponId);
         if (!weapon) return ui.notifications.error("Выберите оружие!");
-
         const mode = html.find('.wod-mode-btn.active').data('mode') || "single";
         openAttackDialog(actor, weapon, mode, html);
     });
@@ -149,31 +119,27 @@ function setupFirearmsLogic(html, isGM) {
     updateWeapons();
 }
 
-// ==========================================
-// 3. ОКНО АТАКИ
-// ==========================================
 async function openAttackDialog(actor, weapon, mode, panelHtml) {
     const config = FIRE_MODES[mode];
     const clip = weapon.system.clip;
-    
     if (mode === "long" && clip.value <= clip.max / 2) return ui.notifications.error(`Слишком мало патронов для длинной очереди!`);
     if (mode !== "long" && clip.value < config.cost) return ui.notifications.error(`Недостаточно патронов!`);
 
-    const attrKey = weapon.system.attack.attribute || "dexterity";
-    const abilityKey = weapon.system.attack.ability || "firearms";
-    const attrVal = actor.system.attributes[attrKey]?.total || 0;
-    const abilityVal = actor.system.abilities[abilityKey]?.value || 0;
-    const accuracy = weapon.system.attack.accuracy || 0;
-    const specialty = actor.system.abilities[abilityKey]?.speciality || "";
+    // Защитные проверки на случай, если в системе другие пути
+    const attrKey = weapon.system.attack?.attribute || "dexterity";
+    const abilityKey = weapon.system.attack?.ability || "firearms";
+    const attrObj = actor.system.attributes?.[attrKey] || {};
+    const attrVal = attrObj.total ?? attrObj.value ?? 0; 
+    const abilityVal = actor.system.abilities?.[abilityKey]?.value || 0;
+    const accuracy = weapon.system.attack?.accuracy || 0;
+    const specialty = actor.system.abilities?.[abilityKey]?.speciality || "";
     const basePool = attrVal + abilityVal + accuracy + config.bonus;
     
     let currentDiff = parseInt(weapon.system.difficulty || 6) + config.diffMod;
-    let currentDamageType = weapon.system.damage.type || "lethal";
+    let currentDamageType = weapon.system.damage?.type || "lethal";
 
     let diffBtnsHTML = "";
-    for (let i = 3; i <= 10; i++) {
-        diffBtnsHTML += `<button type="button" class="wod-diff-btn ${i === currentDiff ? 'active' : ''}" data-val="${i}">${i}</button>`;
-    }
+    for (let i = 3; i <= 10; i++) diffBtnsHTML += `<button type="button" class="wod-diff-btn ${i === currentDiff ? 'active' : ''}" data-val="${i}">${i}</button>`;
 
     const dialogContent = `
         <div style="font-family: 'Signika', sans-serif; padding: 5px;">
@@ -199,8 +165,13 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
             </div>
 
             <div style="margin-bottom: 10px;">
-                <label style="font-weight: bold; font-size: 13px;">Бонус/Штраф кубов:</label>
+                <label style="font-weight: bold; font-size: 13px;">Бонус/Штраф кубов (Атака и Урон):</label>
                 <input type="number" class="wod-manual-bonus" value="0" style="width: 100%; padding: 4px; border: 1px solid #999; border-radius: 4px;">
+            </div>
+
+            <div style="margin-bottom: 10px; padding: 8px; background: rgba(139,0,0,0.1); border-radius: 4px; border: 1px solid #ccc;">
+                <label style="font-weight: bold; font-size: 13px; color: #8b0000;">Успехи защиты (Уклонение/Парирование):</label>
+                <input type="number" class="wod-defense-succ" value="0" min="0" style="width: 100%; padding: 4px; border: 1px solid #999; border-radius: 4px; margin-top: 4px;">
             </div>
 
             <div style="margin-bottom: 10px; padding: 5px; background: rgba(0,0,0,0.05); border-radius: 4px;">
@@ -226,14 +197,12 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
         content: dialogContent,
         buttons: {},
         render: (html) => {
-            // Обработчики кнопок сложности
             html.find('.wod-diff-btn').click(function() {
                 html.find('.wod-diff-btn').removeClass('active').css({background: '#1f5c73', color: 'white', borderColor: '#333'});
                 $(this).addClass('active').css({background: '#10b981', borderColor: '#34d399', color: 'white'});
                 html.find('.wod-diff-input').val($(this).data('val'));
             });
 
-            // Обработчики типа урона
             html.find('.wod-dmg-type-btn').click(function() {
                 html.find('.wod-dmg-type-btn').removeClass('active').css({background: '', color: '', borderColor: '#999'});
                 $(this).addClass('active').css({background: '#2c6b81', color: 'white', borderColor: '#999'});
@@ -247,18 +216,18 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
                 const manualBonus = Number(html.find('.wod-manual-bonus').val()) || 0;
                 const finalDiff = Number(html.find('.wod-diff-input').val());
                 const damageType = html.find('.wod-dmg-type-btn.active').data('val');
+                const defenseSucc = Number(html.find('.wod-defense-succ').val()) || 0;
 
                 html.closest('.dialog').find('.header-button.close').click();
 
-                // 1. Списание патронов
+                // Списание патронов
                 let newClipValue = clip.value - (config.cost === "ALL" ? clip.value : config.cost);
                 await weapon.update({ "system.clip.value": newClipValue });
                 if (panelHtml) panelHtml.find('#firearms-ammo-info').text(`В магазине: ${newClipValue} / ${clip.max}`);
 
-                // Звук выстрела
                 if (game.audio) AudioHelper.play({ src: "sounds/dice.wav", volume: 0.8, autoplay: true, loop: false }, true);
 
-                // 2. Бросок атаки
+                // 1. Бросок атаки
                 const finalPool = Math.max(1, basePool + manualBonus);
                 const roll = new Roll(`${finalPool}d10`);
                 await roll.evaluate();
@@ -271,7 +240,7 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
                     let isSpec = (die.result === 10 && specialty);
                     if (isSucc) rawSucc += isSpec ? 2 : 1;
                     if (isOne) ones++;
-                    diceHTML += createDieHTML(die.result, isSucc, isOne);
+                    diceHTML += createDieHTML(die.result, isSucc ? (isSpec ? 'spec' : 'success') : (isOne ? 'fail' : 'neutral'));
                 }
 
                 let netSucc = Math.max(0, rawSucc - ones);
@@ -296,138 +265,49 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
                 });
 
                 const chatData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: attackHtml };
-                if (isBlind) {
-                    chatData.blind = true;
-                    chatData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id);
-                }
+                if (isBlind) { chatData.blind = true; chatData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
                 await ChatMessage.create(chatData);
 
-                // 3. Переход к окну урона (если попал)
-                if (netSucc > 0) {
-                    // Небольшая задержка, чтобы атака успела отрисоваться
-                    setTimeout(() => {
-                        openDamageDialog(actor, weapon, netSucc, damageType, isBlind);
-                    }, 500);
-                }
-            });
-        }
-    }, { width: 400, height: 500, resizable: false }).render(true);
-}
-
-// ==========================================
-// 4. ОКНО УРОНА
-// ==========================================
-async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBlindAttack) {
-    const baseDamage = weapon.system.damage.bonus || 0;
-    
-    let diffBtnsHTML = "";
-    for (let i = 3; i <= 10; i++) {
-        diffBtnsHTML += `<button type="button" class="wod-diff-btn ${i === 6 ? 'active' : ''}" data-val="${i}">${i}</button>`;
-    }
-
-    const dialogContent = `
-        <div style="font-family: 'Signika', sans-serif; padding: 5px;">
-            <h3 style="margin-top: 0; color: #8b0000; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Урон: ${weapon.name}</h3>
-            
-            <div style="margin-bottom: 10px; font-size: 0.95em;">
-                <strong>Базовый урон:</strong> ${baseDamage} (${damageType})<br>
-                <strong>Успехи атаки:</strong> ${attackSuccesses}
-            </div>
-
-            <div style="margin-bottom: 10px; padding: 8px; background: rgba(139,0,0,0.1); border-radius: 4px; border: 1px solid #ccc;">
-                <label style="font-weight: bold; font-size: 13px; color: #8b0000;">Успехи защиты (Уклонение/Парирование):</label>
-                <input type="number" class="wod-defense-succ" value="0" min="0" style="width: 100%; padding: 4px; border: 1px solid #999; border-radius: 4px; margin-top: 4px;">
-            </div>
-
-            <div style="margin-bottom: 10px;">
-                <label style="font-weight: bold; font-size: 13px;">Сложность:</label>
-                <div class="wod-diff-container" style="display: flex; gap: 4px; margin-top: 4px;">${diffBtnsHTML}</div>
-                <input type="hidden" class="wod-diff-input" value="6">
-            </div>
-
-            <div style="margin-bottom: 10px;">
-                <label style="font-weight: bold; font-size: 13px;">Бонус/Штраф кубов:</label>
-                <input type="number" class="wod-manual-bonus" value="0" style="width: 100%; padding: 4px; border: 1px solid #999; border-radius: 4px;">
-            </div>
-
-            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
-                <button type="button" class="wod-roll-dmg-btn" style="background: #8b0000; color: white; padding: 6px 15px; border: 1px solid #5c0000; cursor: pointer; font-weight: bold; border-radius:4px;">Бросок урона</button>
-                <button type="button" class="wod-cancel-dmg-btn" style="background: #444; color: white; padding: 6px 15px; border: 1px solid #222; cursor: pointer; font-weight: bold; border-radius:4px;">Отмена</button>
-            </div>
-        </div>
-    `;
-
-    new Dialog({
-        title: `Урон: ${weapon.name}`,
-        content: dialogContent,
-        buttons: {},
-        render: (html) => {
-            html.find('.wod-diff-btn').click(function() {
-                html.find('.wod-diff-btn').removeClass('active').css({background: '#1f5c73', color: 'white', borderColor: '#333'});
-                $(this).addClass('active').css({background: '#10b981', borderColor: '#34d399', color: 'white'});
-                html.find('.wod-diff-input').val($(this).data('val'));
-            });
-
-            html.find('.wod-cancel-dmg-btn').click(() => html.closest('.dialog').find('.header-button.close').click());
-            
-            html.find('.wod-roll-dmg-btn').click(async () => {
-                const defenseSucc = Number(html.find('.wod-defense-succ').val()) || 0;
-                const manualBonus = Number(html.find('.wod-manual-bonus').val()) || 0;
-                const finalDiff = Number(html.find('.wod-diff-input').val());
-
-                html.closest('.dialog').find('.header-button.close').click();
-
-                // Логика уклонения
-                const netAttackSucc = attackSuccesses - defenseSucc;
+                // 2. Логика защиты и урона в том же окне
+                const netAttackSucc = netSucc - defenseSucc;
+                
                 if (netAttackSucc <= 0) {
-                    const missData = {
-                        speaker: ChatMessage.getSpeaker({ actor: actor }),
-                        content: `<p><strong>${actor.name}</strong> промахивается! Цель успешно защитилась (Защита: ${defenseSucc} >= Атака: ${attackSuccesses}).</p>`
-                    };
-                    if (isBlindAttack) {
-                        missData.blind = true;
-                        missData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id);
-                    }
+                    // Цель защитилась
+                    const missData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> промахивается! Цель успешно защитилась (Защита: ${defenseSucc} >= Атака: ${netSucc}).</p>` };
+                    if (isBlind) { missData.blind = true; missData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
                     return ChatMessage.create(missData);
                 }
 
-                // Расчет пула урона
-                // Успехи после первого: (netAttackSucc - 1). Они прибавляются к базовому урону.
-                const bonusDice = Math.max(0, netAttackSucc - 1);
+                const baseDamage = weapon.system.damage?.bonus || 0;
+                const bonusDice = Math.max(0, netAttackSucc - 1); // Успехи после первого
                 const finalDmgPool = Math.max(1, baseDamage + bonusDice + manualBonus);
 
-                const roll = new Roll(`${finalDmgPool}d10`);
-                await roll.evaluate();
-                
-                // Визуальный бросок урона (даже если скрытый, показываем кубы в чате, но шепотом)
-                if (game.dice3d) await game.dice3d.showForRoll(roll, game.user, true, null, false);
+                const dmgRoll = new Roll(`${finalDmgPool}d10`);
+                await dmgRoll.evaluate();
+                if (game.dice3d && !isBlind) await game.dice3d.showForRoll(dmgRoll, game.user, true, null, false);
 
-                let dmgSucc = 0, diceHTML = "";
-                for (let die of roll.dice[0].results) {
-                    let isSucc = die.result >= finalDiff;
+                let dmgSucc = 0, dmgDiceHTML = "";
+                for (let die of dmgRoll.dice[0].results) {
+                    let isSucc = die.result >= 6; // Урон обычно по 6-й сложности
                     if (isSucc) dmgSucc++;
-                    diceHTML += createDieHTML(die.result, isSucc, false);
+                    dmgDiceHTML += createDieHTML(die.result, isSucc ? 'success' : 'neutral');
                 }
-                
                 dmgSucc = Math.max(1, dmgSucc); // Минимум 1 успех на уроне
 
                 const damageHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-damage.html`, {
                     actorName: actor.name,
                     weaponName: weapon.name,
                     pool: `Базовый (${baseDamage}) + Успехи (${bonusDice}) ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalDmgPool}`,
-                    difficulty: finalDiff,
-                    diceHTML: diceHTML,
+                    difficulty: 6,
+                    diceHTML: dmgDiceHTML,
                     damageTotal: dmgSucc,
                     damageType: damageType
                 });
 
-                const chatData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: damageHtml };
-                if (isBlindAttack) {
-                    chatData.blind = true;
-                    chatData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id);
-                }
-                await ChatMessage.create(chatData);
+                const dmgChatData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: damageHtml };
+                if (isBlind) { dmgChatData.blind = true; dmgChatData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
+                await ChatMessage.create(dmgChatData);
             });
         }
-    }, { width: 400, height: 450, resizable: false }).render(true);
+    }, { width: 400, height: 550, resizable: false }).render(true);
 }
