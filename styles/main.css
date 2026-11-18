@@ -1,15 +1,41 @@
 .wod-firearms-container {
     font-family: 'Signika', sans-serif;
     color: #333;
+    display: flex;
+    flex-direction: column;
 }
 
-.wod-firearms-container .form-group label {
-    display: block;
+/* Кнопки режимов */
+.wod-mode-btn {
+    padding: 6px;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid #999;
+    border-radius: 4px;
+    cursor: pointer;
     font-weight: bold;
-    margin-bottom: 2px;
+    font-size: 13px;
+    color: #333;
+    transition: 0.2s;
+    text-align: left;
+}
+.wod-mode-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+.wod-mode-btn.active {
+    background: #2c6b81;
+    color: #fff;
+    border-color: #5bb9d6;
+    box-shadow: 0 0 5px rgba(91, 185, 214, 0.5);
+}
+.wod-mode-btn:disabled {
+    background: #eee;
+    color: #aaa;
+    border-color: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
-/* Стили для карточек в чате */
+/* Карточки в чате */
 .wod-chat-card {
     background: #fdf5e6;
     border: 1px solid #8b0000;
@@ -34,13 +60,62 @@
 }
 .wod-chat-pool, .wod-chat-difficulty {
     font-size: 0.9em;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
+    color: #555;
 }
 .wod-chat-successes {
     font-weight: bold;
     margin-top: 5px;
+    color: #2e6b4e;
+    font-size: 1.1em;
+}
+.wod-chat-damage-total {
+    margin-top: 10px;
+    font-weight: bold;
+    font-size: 1.2em;
+    color: #8b0000;
+    border-top: 1px solid #ccc;
+    padding-top: 5px;
+    text-align: center;
 }
 .wod-chat-dice {
     margin-top: 8px;
     text-align: center;
+    line-height: 1.5;
+}
+
+/* Стили для граненых кубов */
+.wod-die {
+    display: inline-block;
+    width: 28px; height: 32px;
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+    line-height: 32px;
+    text-align: center;
+    margin: 2px;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+/* Кнопки сложности */
+.wod-diff-btn {
+    flex: 1;
+    padding: 5px 0;
+    background: #1f5c73;
+    color: white;
+    border: 1px solid #333;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    transition: 0.1s;
+}
+.wod-diff-btn:hover {
+    background: #2c6b81;
+}
+.wod-diff-btn.active {
+    background: #10b981;
+    border-color: #34d399;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
 }
