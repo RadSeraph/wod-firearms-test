@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.2.2 - Автозакрытие)
+// Файл: scripts/main.js (Версия 1.3.0 - Воля и поле урона)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -41,7 +41,6 @@ async function openFirearmsPanel() {
     const isGM = game.user.isGM;
     const template = await renderTemplate(`modules/${MODULE_ID}/templates/panel.html`, {});
     
-    // Убрана жесткая высота, окно подстроится само
     new Dialog({
         title: "Стрельба",
         content: template,
@@ -51,7 +50,6 @@ async function openFirearmsPanel() {
 }
 
 function setupFirearmsLogic(html, isGM) {
-    // ... (Вся логика инициализации селектов и режимов остается прежней) ...
     if (isGM) {
         let npcOptions = `<option value="">Не выбрано</option>`;
         game.actors.filter(a => a.type === "Vampire" || a.type === "Mortal").sort((a,b) => a.name.localeCompare(b.name)).forEach(n => npcOptions += `<option value="${n.id}">${n.name}</option>`);
@@ -191,23 +189,27 @@ function setupFirearmsLogic(html, isGM) {
             }
 
             let netSucc = Math.max(0, rawSucc - ones);
-            let resultText = "";
-            if (rawSucc === 0 && ones > 0) resultText = `<div style="color: #d32f2f; font-weight: bold; margin-top: 5px;">ПРОВАЛ (Ботч)</div>`;
-            else if (netSucc === 0) resultText = `<div style="color: #7f8c8d; font-weight: bold; margin-top: 5px;">ПРОМАХ</div>`;
-            else resultText = `<div style="color: #2e6b4e; font-weight: bold; margin-top: 5px;">Успехи: ${netSucc}${useWill ? ' (+1 от Воли)' : ''}</div>`;
+            let willText = "";
 
+            // --- ВОЛЯ СРАБАТЫВАЕТ ДО ТЕКСТА ---
             if (useWill) {
                 netSucc += 1;
+                willText = `<div style="color: #2c6b81; font-weight: bold; margin-top: 5px; font-style: italic;">Лишь сильная воля помогает преодолеть трудности!</div>`;
                 const curWP = actor.system.advantages?.willpower?.temporary || 0;
                 await actor.update({ "system.advantages.willpower.temporary": Math.max(0, curWP - 1) });
             }
+
+            let resultText = "";
+            if (rawSucc === 0 && ones > 0 && !useWill) resultText = `<div style="color: #d32f2f; font-weight: bold; margin-top: 5px;">ПРОВАЛ (Ботч)</div>`;
+            else if (netSucc === 0) resultText = `<div style="color: #7f8c8d; font-weight: bold; margin-top: 5px;">ПРОМАХ</div>`;
+            else resultText = `<div style="color: #2e6b4e; font-weight: bold; margin-top: 5px;">Успехи: ${netSucc}</div>`;
 
             const attackHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-attack.html`, {
                 actorName: actor.name,
                 weaponName: weapon.name,
                 pool: `${attrKey} (${attrVal}) + ${abilityKey} (${abilityVal}) ${accuracy ? `+ Acc (${accuracy})` : ''} ${config.bonus ? `+ Режим (${config.bonus})` : ''} ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalPool}`,
                 difficulty: finalDiff,
-                diceHTML: diceHTML + resultText
+                diceHTML: diceHTML + resultText + willText
             });
 
             const chatData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: attackHtml };
@@ -216,7 +218,7 @@ function setupFirearmsLogic(html, isGM) {
 
             if (netSucc > 0) {
                 setTimeout(() => {
-                    openDamageDialog(actor, weapon, netSucc, damageType, manualBonus, isBlind);
+                    openDamageDialog(actor, weapon, netSucc, damageType, isBlind);
                 }, 600);
             }
 
@@ -229,7 +231,7 @@ function setupFirearmsLogic(html, isGM) {
     updateWeapons();
 }
 
-async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manualBonus, isBlindAttack) {
+async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBlindAttack) {
     const baseDamage = weapon.system.damage?.bonus || 0;
     
     let diffBtnsHTML = "";
@@ -253,6 +255,11 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
                 <label style="font-weight: bold; font-size: 13px;">Сложность урона:</label>
                 <div class="wod-dmg-diff-container" style="display: flex; gap: 4px; margin-top: 4px;">${diffBtnsHTML}</div>
                 <input type="hidden" class="wod-dmg-diff-input" value="6">
+            </div>
+
+            <div style="margin-bottom: 10px;">
+                <label style="font-weight: bold; font-size: 13px;">Бонус/Штраф кубов:</label>
+                <input type="number" class="wod-dmg-manual-bonus" value="0" style="width: 100%; padding: 4px; border: 1px solid #999; border-radius: 4px; margin-top: 4px;">
             </div>
 
             <div style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
@@ -279,6 +286,8 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
                 try {
                     const defenseSucc = Number(html.find('.wod-defense-succ').val()) || 0;
                     const finalDiff = Number(html.find('.wod-dmg-diff-input').val());
+                    const dmgManualBonus = Number(html.find('.wod-dmg-manual-bonus').val()) || 0; // НОВОЕ ПОЛЕ
+                    
                     html.closest('.dialog').find('.header-button.close').click();
 
                     const netAttackSucc = attackSuccesses - defenseSucc;
@@ -289,7 +298,8 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
                     }
 
                     const bonusDice = Math.max(0, netAttackSucc - 1);
-                    const finalDmgPool = Math.max(1, baseDamage + bonusDice + manualBonus);
+                    // ИСПОЛЬЗУЕМ НОВОЕ ПОЛЕ dmgManualBonus
+                    const finalDmgPool = Math.max(1, baseDamage + bonusDice + dmgManualBonus);
 
                     const dmgRoll = new Roll(`${finalDmgPool}d10`);
                     await dmgRoll.evaluate();
@@ -306,7 +316,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, manu
                     const damageHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-damage.html`, {
                         actorName: actor.name,
                         weaponName: weapon.name,
-                        pool: `Базовый (${baseDamage}) + Успехи (${bonusDice}) ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalDmgPool}`,
+                        pool: `Базовый (${baseDamage}) + Успехи (${bonusDice}) ${dmgManualBonus ? `+ Вручную (${dmgManualBonus})` : ''} = ${finalDmgPool}`,
                         difficulty: finalDiff,
                         diceHTML: dmgDiceHTML,
                         damageTotal: dmgSucc,
