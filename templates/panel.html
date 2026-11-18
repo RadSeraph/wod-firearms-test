@@ -1,39 +1,29 @@
 <div class="wod-firearms-container">
-    <h2 style="text-align:center; margin-top:0;">Стрельба (Тест)</h2>
+    <h2 style="text-align:center; margin-top:0; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Стрельба</h2>
     
     <div id="firearms-npc-block" style="display: none; margin-bottom: 10px; padding: 5px; background: rgba(0,0,0,0.1); border-radius: 4px; border: 1px solid #444;">
         <label style="font-weight: bold; color: #000; margin-bottom: 2px; display: block; font-size: 13px;">Выбрать персонажа:</label>
         <select id="firearms-npc-select" style="width: 100%; padding: 4px; border-radius: 4px; border: 1px solid #666; color: #000; font-size: 13px;"></select>
     </div>
 
-    <div class="form-group" id="firearms-actor-block" style="margin-bottom: 10px;">
-        <label>Персонаж:</label>
+    <div class="form-group" id="firearms-actor-block" style="margin-bottom: 10px; display: none;">
         <select id="firearms-actor-select" style="width: 100%;"></select>
     </div>
 
-    <div class="form-group" style="margin-top: 10px;">
-        <label>Оружие (Дальнобойное):</label>
-        <select id="firearms-weapon-select" style="width: 100%;"></select>
+    <div class="form-group" style="margin-top: 10px; margin-bottom: 10px;">
+        <label style="font-weight: bold; color: #000; font-size: 13px; margin-bottom: 3px; display: block;">Оружие:</label>
+        <select id="firearms-weapon-select" style="width: 100%; padding: 4px; border: 1px solid #666; border-radius: 4px; font-size: 13px;"></select>
     </div>
 
-    <div class="form-group" style="margin-top: 10px;">
-        <label>Режим стрельбы:</label>
-        <select id="firearms-mode-select" style="width: 100%;">
-            <option value="single">Одиночный</option>
-            <option value="short">Короткая очередь</option>
-            <option value="long">Длинная очередь</option>
-        </select>
+    <div class="form-group" style="margin-top: 10px; margin-bottom: 10px;">
+        <label style="font-weight: bold; color: #000; font-size: 13px; margin-bottom: 3px; display: block;">Режим стрельбы:</label>
+        <div id="firearms-mode-buttons" style="display: flex; flex-direction: column; gap: 3px;">
+            <!-- Кнопки будут генерироваться в JS -->
+        </div>
     </div>
 
-    <div id="firearms-ammo-info" style="margin-top: 5px; font-size: 0.9em; text-align: center; color: #333; font-weight: bold;">
+    <div id="firearms-ammo-info" style="margin-top: 10px; font-size: 1em; text-align: center; color: #333; font-weight: bold; background: rgba(0,0,0,0.05); padding: 5px; border-radius: 4px;">
         В магазине: 0 / 0
-    </div>
-
-    <div class="form-group" style="margin-top: 10px; padding: 5px; background: rgba(0,0,0,0.05); border-radius: 4px;">
-        <label style="display: flex; align-items: center; cursor: pointer; margin: 0; color: #8b0000; font-weight: bold;">
-            <input type="checkbox" id="firearms-is-vampire" style="margin-right: 8px; width: 16px; height: 16px;">
-            <span>Цель — вампир (урон → башинг)</span>
-        </label>
     </div>
 
     <button type="button" id="firearms-fire-btn" style="margin-top: 15px; padding: 8px 16px; background: #8b0000; color: white; border: 1px solid #5c0000; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s;">
