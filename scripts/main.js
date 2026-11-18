@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 0.3.0 - Объединенное окно)
+// Файл: scripts/main.js (Версия 1.1.1)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -11,7 +11,7 @@ const FIRE_MODES = {
     long:   { label: "Длинная очередь", cost: "ALL", bonus: 10, diffMod: 2, isBurst: true }
 };
 
-// Та самая функция граненых кубов из старого модуля
+// Функция граненых кубов
 function createDieHTML(value, resultType) {
     let gradStart, gradEnd, strokeColor;
     if (resultType === 'success') { gradStart = '#2ecc71'; gradEnd = '#145a32'; strokeColor = '#1a7a1a'; }
@@ -121,11 +121,11 @@ function setupFirearmsLogic(html, isGM) {
 
 async function openAttackDialog(actor, weapon, mode, panelHtml) {
     const config = FIRE_MODES[mode];
-    const clip = weapon.system.clip;
+    const clip = weapon.system.clip || { value: 0, max: 0 };
+    
     if (mode === "long" && clip.value <= clip.max / 2) return ui.notifications.error(`Слишком мало патронов для длинной очереди!`);
     if (mode !== "long" && clip.value < config.cost) return ui.notifications.error(`Недостаточно патронов!`);
 
-    // Защитные проверки на случай, если в системе другие пути
     const attrKey = weapon.system.attack?.attribute || "dexterity";
     const abilityKey = weapon.system.attack?.ability || "firearms";
     const attrObj = actor.system.attributes?.[attrKey] || {};
@@ -222,6 +222,7 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
 
                 // Списание патронов
                 let newClipValue = clip.value - (config.cost === "ALL" ? clip.value : config.cost);
+                if (newClipValue < 0) newClipValue = 0;
                 await weapon.update({ "system.clip.value": newClipValue });
                 if (panelHtml) panelHtml.find('#firearms-ammo-info').text(`В магазине: ${newClipValue} / ${clip.max}`);
 
@@ -251,7 +252,7 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
 
                 if (useWill) {
                     netSucc += 1;
-                    const curWP = actor.system.advantages.willpower.temporary;
+                    const curWP = actor.system.advantages?.willpower?.temporary || 0;
                     await actor.update({ "system.advantages.willpower.temporary": Math.max(0, curWP - 1) });
                 }
 
@@ -268,18 +269,17 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
                 if (isBlind) { chatData.blind = true; chatData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
                 await ChatMessage.create(chatData);
 
-                // 2. Логика защиты и урона в том же окне
+                // 2. Логика защиты и урона
                 const netAttackSucc = netSucc - defenseSucc;
                 
                 if (netAttackSucc <= 0) {
-                    // Цель защитилась
                     const missData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> промахивается! Цель успешно защитилась (Защита: ${defenseSucc} >= Атака: ${netSucc}).</p>` };
                     if (isBlind) { missData.blind = true; missData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
                     return ChatMessage.create(missData);
                 }
 
                 const baseDamage = weapon.system.damage?.bonus || 0;
-                const bonusDice = Math.max(0, netAttackSucc - 1); // Успехи после первого
+                const bonusDice = Math.max(0, netAttackSucc - 1);
                 const finalDmgPool = Math.max(1, baseDamage + bonusDice + manualBonus);
 
                 const dmgRoll = new Roll(`${finalDmgPool}d10`);
@@ -288,11 +288,11 @@ async function openAttackDialog(actor, weapon, mode, panelHtml) {
 
                 let dmgSucc = 0, dmgDiceHTML = "";
                 for (let die of dmgRoll.dice[0].results) {
-                    let isSucc = die.result >= 6; // Урон обычно по 6-й сложности
+                    let isSucc = die.result >= 6;
                     if (isSucc) dmgSucc++;
                     dmgDiceHTML += createDieHTML(die.result, isSucc ? 'success' : 'neutral');
                 }
-                dmgSucc = Math.max(1, dmgSucc); // Минимум 1 успех на уроне
+                dmgSucc = Math.max(1, dmgSucc);
 
                 const damageHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-damage.html`, {
                     actorName: actor.name,
