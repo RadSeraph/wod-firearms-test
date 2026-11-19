@@ -171,15 +171,34 @@ function setupFirearmsLogic(html, isGM) {
             const specialty = actor.system.abilities?.[abilityKey]?.speciality || "";
 
             // --- ШТРАФ ОТ РАН ---
+            // Помят: 0 | Легко ранен: -1 | Ранен: -1 | Серьезно ранен: -2
+            // Тяжело ранен: -2 | Едва жив: -5 | При смерти: бросок невозможен
             let woundPenalty = 0;
+            let isIncapacitated = false;
             if (!ignoreWounds) {
                 const health = foundry.utils.getProperty(actor, CONFIG.healthPath);
                 if (health) {
                     const totalDamage = (Number(health.bashing) || 0) + (Number(health.lethal) || 0) + (Number(health.aggravated) || 0);
-                    if (totalDamage >= 6) woundPenalty = -5;
-                    else if (totalDamage >= 4) woundPenalty = -2;
-                    else if (totalDamage >= 2) woundPenalty = -1;
+                    const maxHealth = Number(health.max) || actor.system.health?.max || 0;
+                    if (totalDamage >= maxHealth && maxHealth > 0) {
+                        isIncapacitated = true; // При смерти
+                    } else if (totalDamage === maxHealth - 1 && maxHealth > 0) {
+                        woundPenalty = -5; // Едва жив
+                    } else if (totalDamage >= 4) {
+                        woundPenalty = -2; // Серьезно / Тяжело ранен
+                    } else if (totalDamage >= 2) {
+                        woundPenalty = -1; // Легко ранен / Ранен
+                    } else {
+                        woundPenalty = 0; // Здоров / Помят
+                    }
                 }
+            }
+
+            if (isIncapacitated) {
+                html.closest('.dialog').find('.header-button.close').click();
+                const incapData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> находится при смерти и не может совершать действия.</p>` };
+                await ChatMessage.create(incapData);
+                return;
             }
 
             const basePool = attrVal + abilityVal + accuracy + config.bonus + woundPenalty;
