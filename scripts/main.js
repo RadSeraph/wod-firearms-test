@@ -1,10 +1,59 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.5.0 - Штраф ран и Воля + Игнор ран)
+// Файл: scripts/main.js (Версия 1.3.1 - Исправлены ступени штрафов от ран)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
 const CONFIG = { healthPath: "system.health.damage" }; // Путь к здоровью для штрафов
+
+// Таблица штрафов по уровням ран. Ключи — русские ярлыки системы (V5):
+// Помят, Легко ранен, Ранен, Серьезно ранен, Тяжело ранен, Едва жив, При смерти.
+// Совпадение регистронезависимое, поддержка подстрок. null = бросок невозможен.
+const WOUND_PENALTY_TABLE = [
+    { names: ["при смерти"],                        penalty: null },
+    { names: ["едва жив"],                          penalty: -5 },
+    { names: ["тяжело ранен", "серьезно ранен", "серьёзно ранен"], penalty: -2 },
+    { names: ["ранен", "ранён"],                    penalty: -1 }, // ловит и "легко ранен"
+    { names: ["помят"],                             penalty: 0 }
+];
+
+// Читаем название текущего уровня ран из данных актёра (система его уже вычисляет)
+function getWoundLabel(actor) {
+    const candidates = [
+        foundry.utils.getProperty(actor, "system.health.penalty"),
+        foundry.utils.getProperty(actor, "system.health.woundLevel"),
+        foundry.utils.getProperty(actor, "system.health.wound_level"),
+        foundry.utils.getProperty(actor, "system.health.level"),
+        foundry.utils.getProperty(actor, "system.health.injury"),
+        actor.system?.health?.penalties?.label,
+        foundry.utils.getProperty(actor, "system.health.derived.penalty")
+    ];
+    for (const c of candidates) {
+        if (typeof c === "string" && c.trim()) return c.trim().toLowerCase();
+    }
+    return null;
+}
+
+// Определяем штраф по названию уровня; если название недоступно — fallback по ступеням
+function resolveWoundPenalty(actor, totalDamage, maxHealth) {
+    const label = getWoundLabel(actor);
+    if (label) {
+        for (const row of WOUND_PENALTY_TABLE) {
+            for (const name of row.names) {
+                if (label.includes(name)) return row.penalty;
+            }
+        }
+    }
+    // Fallback: расчёт по суммарному урону относительно максимального здоровья.
+    // Ступени (справа налево): При смерти >= max | Едва жив max-1..max-3 |
+    // Серьезно/Тяжело max-4..max-5 | Легко/Ранен max-6 | Помят < max-6
+    if (!(maxHealth > 0)) return 0;
+    if (totalDamage >= maxHealth) return null;          // При смерти
+    if (totalDamage >= maxHealth - 3) return -5;        // Едва жив
+    if (totalDamage >= maxHealth - 5) return -2;        // Серьезно / Тяжело ранен
+    if (totalDamage >= maxHealth - 6) return -1;        // Легко ранен / Ранен
+    return 0;                                           // Здоров / Помят
+}
 
 const FIRE_MODES = {
     single: { label: "Одиночный", cost: 1, bonus: 0, diffMod: 0, isBurst: false },
@@ -180,16 +229,11 @@ function setupFirearmsLogic(html, isGM) {
                 if (health) {
                     const totalDamage = (Number(health.bashing) || 0) + (Number(health.lethal) || 0) + (Number(health.aggravated) || 0);
                     const maxHealth = Number(health.max) || actor.system.health?.max || 0;
-                    if (totalDamage >= maxHealth && maxHealth > 0) {
+                    const resolved = resolveWoundPenalty(actor, totalDamage, maxHealth);
+                    if (resolved === null) {
                         isIncapacitated = true; // При смерти
-                    } else if (totalDamage === maxHealth - 1 && maxHealth > 0) {
-                        woundPenalty = -5; // Едва жив
-                    } else if (totalDamage >= 4) {
-                        woundPenalty = -2; // Серьезно / Тяжело ранен
-                    } else if (totalDamage >= 2) {
-                        woundPenalty = -1; // Легко ранен / Ранен
                     } else {
-                        woundPenalty = 0; // Здоров / Помят
+                        woundPenalty = resolved;
                     }
                 }
             }
