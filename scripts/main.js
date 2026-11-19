@@ -1,6 +1,6 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.4.0 - Штраф ран и Воля)
+// Файл: scripts/main.js (Версия 1.5.0 - Штраф ран и Воля + Игнор ран)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
@@ -41,7 +41,7 @@ Hooks.on("ready", () => {
 async function openFirearmsPanel() {
     const isGM = game.user.isGM;
     const template = await renderTemplate(`modules/${MODULE_ID}/templates/panel.html`, {});
-    
+
     new Dialog({
         title: "Стрельба",
         content: template,
@@ -89,7 +89,7 @@ function setupFirearmsLogic(html, isGM) {
         const container = html.find('#firearms-mode-buttons');
         container.empty();
         if (!weapon) return;
-        
+
         const modeObj = weapon.system.mode || {};
         const hasBurst = modeObj.hasburst || false;
         const hasFullAuto = modeObj.hasfullauto || false;
@@ -98,12 +98,12 @@ function setupFirearmsLogic(html, isGM) {
         Object.entries(FIRE_MODES).forEach(([key, mode]) => {
             let isDisabled = (key === "short" && !hasBurst) || (key === "long" && !hasFullAuto);
             const btn = $(`<button type="button" class="wod-mode-btn ${key === 'single' ? 'active' : ''}" data-mode="${key}" ${isDisabled ? 'disabled' : ''} style="padding:6px; background:${key === 'single' ? '#2c6b81' : 'rgba(0,0,0,0.05)'}; color:${key === 'single' ? '#fff' : '#333'}; border:1px solid ${key === 'single' ? '#5bb9d6' : '#999'}; border-radius:4px; cursor:pointer; text-align:left; font-weight:bold; font-size:13px;">${mode.label}</button>`);
-            
+
             btn.click(function() {
                 if ($(this).prop('disabled')) return;
                 container.find('.wod-mode-btn').removeClass('active').css({background: 'rgba(0,0,0,0.05)', color: '#333', borderColor: '#999'});
                 $(this).addClass('active').css({background: '#2c6b81', color: '#fff', borderColor: '#5bb9d6'});
-                
+
                 const newDiff = weaponDiff + mode.diffMod;
                 html.find('.wod-diff-btn').removeClass('active').css({background: '#1f5c73', borderColor: '#333'});
                 html.find(`.wod-diff-btn[data-val="${newDiff}"]`).addClass('active').css({background: '#10b981', borderColor: '#34d399'});
@@ -141,16 +141,17 @@ function setupFirearmsLogic(html, isGM) {
             const weaponId = html.find('#firearms-weapon-select').val();
             const weapon = actor.items.get(weaponId);
             if (!weapon) return ui.notifications.error("Выберите оружие!");
-            
+
             const mode = html.find('.wod-mode-btn.active').data('mode') || "single";
             const config = FIRE_MODES[mode];
             const clip = weapon.system.clip || { value: 0, max: 0 };
-            
+
             if (mode === "long" && clip.value <= clip.max / 2) return ui.notifications.error(`Слишком мало патронов для длинной очереди!`);
             if (mode !== "long" && clip.value < config.cost) return ui.notifications.error(`Недостаточно патронов!`);
 
             const useWill = html.find('.wod-use-will').is(':checked');
             const isBlind = html.find('.wod-blind-roll').is(':checked');
+            const ignoreWounds = html.find('.wod-ignore-wounds').is(':checked');
             const manualBonus = Number(html.find('.wod-manual-bonus').val()) || 0;
             const finalDiff = Number(html.find('.wod-diff-input').val());
             const damageType = html.find('.wod-dmg-type-btn.active').data('val');
@@ -164,28 +165,30 @@ function setupFirearmsLogic(html, isGM) {
             const attrKey = weapon.system.attack?.attribute || "dexterity";
             const abilityKey = weapon.system.attack?.ability || "firearms";
             const attrObj = actor.system.attributes?.[attrKey] || {};
-            const attrVal = attrObj.total ?? attrObj.value ?? 0; 
+            const attrVal = attrObj.total ?? attrObj.value ?? 0;
             const abilityVal = actor.system.abilities?.[abilityKey]?.value || 0;
             const accuracy = weapon.system.attack?.accuracy || 0;
             const specialty = actor.system.abilities?.[abilityKey]?.speciality || "";
 
             // --- ШТРАФ ОТ РАН ---
             let woundPenalty = 0;
-            const health = foundry.utils.getProperty(actor, CONFIG.healthPath);
-            if (health) {
-                const totalDamage = (Number(health.bashing) || 0) + (Number(health.lethal) || 0) + (Number(health.aggravated) || 0);
-                if (totalDamage >= 6) woundPenalty = -5;
-                else if (totalDamage >= 4) woundPenalty = -2;
-                else if (totalDamage >= 2) woundPenalty = -1;
+            if (!ignoreWounds) {
+                const health = foundry.utils.getProperty(actor, CONFIG.healthPath);
+                if (health) {
+                    const totalDamage = (Number(health.bashing) || 0) + (Number(health.lethal) || 0) + (Number(health.aggravated) || 0);
+                    if (totalDamage >= 6) woundPenalty = -5;
+                    else if (totalDamage >= 4) woundPenalty = -2;
+                    else if (totalDamage >= 2) woundPenalty = -1;
+                }
             }
-            
+
             const basePool = attrVal + abilityVal + accuracy + config.bonus + woundPenalty;
             const finalPool = Math.max(0, Math.floor(basePool + manualBonus));
 
             html.closest('.dialog').find('.header-button.close').click();
 
             if (finalPool <= 0) {
-                const failData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> пытается выстрелить из ${weapon.name}, но пул кубов равен 0 (Штраф от ран: ${woundPenalty}). Действие провалено.</p>` };
+                const failData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> пытается выстрелить из ${weapon.name}, но пул кубов равен 0${ignoreWounds ? '' : ` (Штраф от ран: ${woundPenalty})`}. Действие провалено.</p>` };
                 if (isBlind) { failData.blind = true; failData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
                 await ChatMessage.create(failData);
                 return;
@@ -194,7 +197,7 @@ function setupFirearmsLogic(html, isGM) {
             let newClipValue = clip.value - (config.cost === "ALL" ? clip.value : config.cost);
             if (newClipValue < 0) newClipValue = 0;
             await weapon.update({ "system.clip.value": newClipValue });
-            
+
             if (game.audio) foundry.audio.AudioHelper.play({ src: "sounds/dice.wav", volume: 0.8, autoplay: true, loop: false }, true);
 
             const roll = new Roll(`${finalPool}d10`);
@@ -257,14 +260,14 @@ function setupFirearmsLogic(html, isGM) {
 
 async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBlindAttack) {
     const baseDamage = weapon.system.damage?.bonus || 0;
-    
+
     let diffBtnsHTML = "";
     for (let i = 3; i <= 10; i++) diffBtnsHTML += `<button type="button" class="wod-diff-btn ${i === 6 ? 'active' : ''}" data-val="${i}" style="flex:1; padding:5px 0; background:${i === 6 ? '#10b981' : '#1f5c73'}; color:white; border:1px solid ${i === 6 ? '#34d399' : '#333'}; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">${i}</button>`;
 
     const dialogContent = `
         <div style="font-family: 'Signika', sans-serif; padding: 5px;">
             <h3 style="margin-top: 0; color: #8b0000; border-bottom: 1px solid #ccc; padding-bottom: 5px;">${weapon.name}</h3>
-            
+
             <div style="margin-bottom: 10px; font-size: 0.95em;">
                 <strong>Базовый урон:</strong> ${baseDamage} (${damageType})<br>
                 <strong>Успехи атаки:</strong> ${attackSuccesses}
@@ -305,13 +308,13 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
             });
 
             html.find('.wod-cancel-dmg-btn').click(() => html.closest('.dialog').find('.header-button.close').click());
-            
+
             html.find('.wod-roll-dmg-btn').click(async () => {
                 try {
                     const defenseSucc = Number(html.find('.wod-defense-succ').val()) || 0;
                     const finalDiff = Number(html.find('.wod-dmg-diff-input').val());
                     const dmgManualBonus = Number(html.find('.wod-dmg-manual-bonus').val()) || 0;
-                    
+
                     html.closest('.dialog').find('.header-button.close').click();
 
                     const netAttackSucc = attackSuccesses - defenseSucc;
@@ -322,7 +325,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                     }
 
                     const bonusDice = Math.max(0, netAttackSucc - 1);
-                    
+
                     // Сначала бонусы, потом штрафы, защита минимума 1
                     let totalPool = baseDamage + bonusDice + dmgManualBonus;
                     const finalDmgPool = Math.max(1, Math.floor(totalPool));
@@ -337,7 +340,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                         if (isSucc) dmgSucc++;
                         dmgDiceHTML += createDieHTML(die.result, isSucc ? 'success' : 'neutral');
                     }
-                    
+
                     dmgSucc = Math.max(1, dmgSucc);
 
                     const damageHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-damage.html`, {
