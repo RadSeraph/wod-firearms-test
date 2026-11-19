@@ -1,179 +1,74 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.3.3 - Штрафы от ран для WoD v20: прямой штраф системы + совместимость с CONFIG.V20.WOUNDED_LEVELS)
+// Файл: scripts/main.js (Версия 1.4.0 - обработка уровней здоровья и штрафов от ран приведена к материнскому модулю wod-master-panel v2.8: system.health.damage + system.health.penalite)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
 
-// Уровни ран WoD v20 по русским ярлыкам (включая варианты перевода) -> штраф кубов.
-// null = бросок невозможен (При смерти).
-const WOUND_TABLE_RU = [
-    { labels: ["не ранен", "здоров", "цел", "healthy", "bruise"], penalty: 0 },
-    { labels: ["помят", "bruised"], penalty: 0 },
-    { labels: ["легко ранен", "lightly wounded"], penalty: -1 },
-    { labels: ["ранен", "wounded"], penalty: -1 },
-    { labels: ["сильно ранен", "серьезно ранен", "very wounded"], penalty: -2 },
-    { labels: ["тяжело ранен", "incapacitated"], penalty: -5 },
-    { labels: ["при смерти", "dying"], penalty: null },
-];
+// Пути к данным здоровья — идентичны материнскому модулю (wod-master-panel).
+const HEALTH_CONFIG = {
+    healthPath: "system.health.damage",
+    healthStatePath: "system.health.penalite"
+};
 
-// Нормализация строк для сравнения ярлыков
-function normStr(s) {
-    return String(s ?? "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
-}
+// =========================================
+// ШТРАФЫ ОТ РАН (совместимо с wod-master-panel)
+// Урон разных типов НЕ конвертируется: каждый тип занимает свои ячейки
+// на шкале здоровья и просто смещает состояние вниз по ней.
+// Пример: 2 bashing + 2 lethal + 2 aggravated = 6 заполненных ячеек.
+// Состояние здоровья берется из материнской системы Foundry (WoD20):
+// читаем system.health.penalite — состояние ("Health.Trauma.X"),
+// которое система сама вычисляет по суммарному урону актёра.
+// Если поле недоступно, состояние определяется по суммарному урону.
+//   Помят            0
+//   Легко ранен     -1
+//   Ранен           -1
+//   Серьезно ранен  -2
+//   Тяжело ранен    -2
+//   Едва жив        -5
+//   При смерти — бросать кубики нельзя (действие недопустимо)
+// =========================================
+const WOUND_PENALTIES = {
+    "bruised":      { name: "Помят",         penalty: 0 },
+    "battered":     { name: "Легко ранен",   penalty: -1 },
+    "injured":      { name: "Ранен",         penalty: -1 },
+    "wounded":      { name: "Серьезно ранен",penalty: -2 },
+    "disabled":     { name: "Тяжело ранен",  penalty: -2 },
+    "dying":        { name: "Едва жив",      penalty: -5 },
+    "incapacitated":{ name: "При смерти",    penalty: null } // null => действие недопустимо
+};
 
-// Совпадение ярлыка с уровнем: точное или по началу строки ("Ранен (Wounded)" и т.п.)
-function labelMatchesLevel(label, levelName) {
-    const l = normStr(label), ru = normStr(levelName);
-    return l === ru || l.startsWith(ru + " ") || l.startsWith(ru + "(") || l.startsWith(ru + "-");
-}
+// Индексы состояний по суммарному количеству урона (фолбэк-таблица)
+const WOUND_BY_DAMAGE = ["bruised", "battered", "injured", "wounded", "disabled", "dying", "incapacitated"];
 
-function findInTable(label) {
-    const l = normStr(label);
-    if (!l) return undefined;
-    // Сначала самые длинные (самые специфичные) ярлыки, чтобы "сильно ранен" не схлопнулся в "ранен"
-    const flat = [];
-    WOUND_TABLE_RU.forEach((row, idx) => row.labels.forEach(lbl => flat.push({ lbl, idx })));
-    flat.sort((a, b) => b.lbl.length - a.lbl.length);
-    for (const { lbl, idx } of flat) {
-        if (labelMatchesLevel(l, lbl) || l.includes(lbl)) return WOUND_TABLE_RU[idx].penalty;
-    }
-    return undefined;
-}
+function getWoundInfo(actor) {
+    const health = foundry.utils.getProperty(actor, HEALTH_CONFIG.healthPath);
+    const totalDamage = health
+        ? (Number(health.bashing) || 0) + (Number(health.lethal) || 0) + (Number(health.aggravated) || 0)
+        : 0;
 
-// Источник 1 — прямой числовой штраф из данных актёра (структура v20: system.health.penalty / derived.penalty)
-function readNumericPenalty(actor) {
-    const candidates = [
-        actor.system?.health?.penalty,
-        actor.system?.health?.derived?.penalty,
-        foundry.utils.getProperty(actor, "system.health.woundPenalty"),
-    ];
-    for (const c of candidates) {
-        const n = Number(c);
-        if (Number.isFinite(n) && n !== 0) return Math.min(0, n); // штраф всегда <= 0
-    }
-    return undefined;
-}
-
-// Источник 2 — текстовая метка текущего уровня ран в данных актёра
-function readWoundLabelFromActor(actor) {
-    const candidates = [
-        actor.system?.health?.woundLabel,
-        actor.system?.health?.wound,
-        foundry.utils.getProperty(actor, "system.health.woundLevel"),
-        foundry.utils.getProperty(actor, "system.health.wound_level"),
-        foundry.utils.getProperty(actor, "system.health.level"),
-    ];
-    for (const c of candidates) {
-        if (typeof c === "string" && c.trim()) return c.trim();
-    }
-    return null;
-}
-
-// Источник 3 — таблица уровней системы. v20 использует CONFIG.V20.WOUNDED_LEVELS (плюс защита от
-// реестров с другим регистром ключа и от формата V5-подобных пар [minDamage, label]).
-function getSystemWoundedLevels() {
-    const cfg = globalThis.CONFIG || {};
-    const section = cfg.V20 || cfg.v20 || cfg.WoD || cfg.WOD || cfg.wod || {};
-    return section.WOUNDED_LEVELS || section.wounded_levels;
-}
-
-// Таблица может быть: объектом {key: label}, массивом строк, массивом [{label, penalty}] или парами [min, label].
-// matchedLevelIndex — сколько ступней таблицы «пройдено» текущим вредом (0 = нижняя ступень/здоров).
-function resolveFromSystemTable(actor, totalDamage) {
-    const levels = getSystemWoundedLevels();
-    if (!levels) return undefined;
-
-    // Объект вида { healthy:"Здоров", bruised:"Помят", wounded:"Ранен", ... } — порядок ключей = от лёгкого к тяжёлому.
-    // Текущий уровень определяем по индексу, вычисленному из вреда относительно макс. здоровья.
-    if (!Array.isArray(levels) && typeof levels === "object") {
-        const entries = Object.entries(levels);
-        const maxHealth = Number(actor?.system?.health?.max ?? 0);
-        let idx = -1;
-        if (maxHealth > 0) {
-            // Ступени v20: 0..1/3 — нижняя, 1/3..2/3 — следующая и т.д.
-            idx = Math.min(entries.length - 1, Math.floor((totalDamage / maxHealth) * entries.length));
-        } else {
-            idx = totalDamage > 0 ? entries.length - 1 : 0;
-        }
-        if (idx < 0) return undefined;
-        const explicit = Number(entries[idx][1]?.penalty);
-        if (Number.isFinite(explicit)) return Math.min(0, explicit);
-        return findInTable(entries[idx][1]);
+    // 1) Пробуем взять состояние из материнской системы Foundry.
+    let stateKey = null;
+    const rawState = foundry.utils.getProperty(actor, HEALTH_CONFIG.healthStatePath);
+    if (typeof rawState === "string") {
+        const last = rawState.split(".").pop().toLowerCase(); // "Health.Trauma.Wounded" -> "wounded"
+        if (WOUND_PENALTIES[last]) stateKey = last;
+    } else if (typeof rawState === "number" && WOUND_BY_DAMAGE[rawState]) {
+        stateKey = WOUND_BY_DAMAGE[rawState];
     }
 
-    if (!Array.isArray(levels) || levels.length === 0) return undefined;
-
-    // Массив элементов: строка | {label,...} | [minDamage, label]
-    let matchedIdx = -1;
-    let matchedLabel = "";
-    let hasThresholds = false;
-    for (let i = 0; i < levels.length; i++) {
-        const e = levels[i];
-        const label = typeof e === "string" ? e
-            : Array.isArray(e) ? String(e[1] ?? "")
-            : String(e?.label ?? e?.name ?? "");
-        const min = Array.isArray(e) ? Number(e[0]) : Number(e?.min ?? e?.threshold ?? NaN);
-        if (Number.isFinite(min)) {
-            hasThresholds = true;
-            if (totalDamage >= min) { matchedIdx = i; matchedLabel = label; }
-        }
+    // 2) Фолбэк: определяем состояние по суммарному количеству заполненных ячеек.
+    //    0-1 урона — Помят; 2 — Легко ранен; ... 7+ — При смерти.
+    if (!stateKey) {
+        stateKey = totalDamage <= 1 ? "bruised" : WOUND_BY_DAMAGE[Math.min(totalDamage - 1, 6)];
     }
 
-    // Порогов нет — считаем ступень по доле вреда от максимального здоровья
-    if (!hasThresholds && levels.length > 0) {
-        const maxHealth = Number(actor?.system?.health?.max ?? 0);
-        matchedIdx = maxHealth > 0
-            ? Math.min(levels.length - 1, Math.floor((totalDamage / maxHealth) * levels.length))
-            : (totalDamage > 0 ? levels.length - 1 : 0);
-        const e = levels[matchedIdx];
-        matchedLabel = typeof e === "string" ? e : String(e?.label ?? e?.name ?? "");
-    }
-
-    if (matchedIdx === -1) return undefined;
-
-    const explicitPenalty = Array.isArray(levels[matchedIdx]) ? undefined : Number(levels[matchedIdx]?.penalty);
-    if (Number.isFinite(explicitPenalty)) return Math.min(0, explicitPenalty);
-
-    const byLabel = findInTable(matchedLabel);
-    if (byLabel !== undefined) return byLabel;
-
-    return undefined; // индекс таблицы системы не сопоставили — пусть решает fallback по ступеням v20
-}
-
-// Финальный расчёт: числовой штраф системы -> метка актёра -> таблица CONFIG -> ступени по вреду/здоровью (v20: Penalized/Mangled/Crippled)
-function resolveWoundPenalty(actor, totalDamage, maxHealth) {
-    const numeric = readNumericPenalty(actor);
-    if (numeric !== undefined) return numeric;
-
-    const label = readWoundLabelFromActor(actor);
-    if (label) {
-        const fromLabel = findInTable(label);
-        if (fromLabel !== undefined) return fromLabel;
-    }
-
-    const fromTable = resolveFromSystemTable(actor, totalDamage);
-    if (fromTable !== undefined) return fromTable;
-
-    // Ступени v20: Penalized (-1) при 1/3+ вреда, Mangled (-2) при половине и более, Crippled/При смерти — дальше не стрелять
-    if (!(maxHealth > 0)) return 0;
-    if (totalDamage >= maxHealth) return null;        // При смерти
-    if (totalDamage * 2 >= maxHealth) return -2;       // Mangled (половина здоровья и ниже)
-    if (totalDamage * 3 >= maxHealth) return -1;       // Penalized (треть здоровья)
-    return 0;
-}
-
-// Получение суммарного вреда и макс. здоровья в формате v20 (health.value/penalty/aggravated/super)
-function readHealthData(actor) {
-    const h = actor.system?.health || {};
-    const maxHealth = Number(h.max ?? h.derived?.max ?? actor.system?.attributes?.stamina?.value ?? 5);
-    // В v20 health.value — это ОТНИМАЕМЫЙ урон? Нет: value — текущий уровень здоровья. Вред = max - value.
-    // Но в ряде сборок value хранит накопленный вред — сверяемся с both подходами и берём консервативно больший штраф.
-    const current = Number(h.value ?? maxHealth);
-    const damageFromValue = Math.max(0, maxHealth - current);
-    const agg = Number(h.aggravated) || 0;
-    const sup = Number(h.super) || 0;
-    return { totalDamage: Math.max(damageFromValue, agg + sup), maxHealth };
+    const state = WOUND_PENALTIES[stateKey];
+    return {
+        dying: state.penalty === null,
+        penalty: state.penalty === null ? null : (Number(state.penalty) || 0),
+        stateName: state.name
+    };
 }
 
 // Диагностика: один раз при старте выводим структуру здоровья первого персонажа
@@ -181,9 +76,10 @@ Hooks.once("ready", () => {
     try {
         const a = game.actors?.characters?.[0];
         if (!a) return;
-        console.log(`[${MODULE_ID}] Диагностика ран. CONFIG.V20?.WOUNDED_LEVELS:`,
-            JSON.stringify(getSystemWoundedLevels() ?? "(нет)"));
-        console.log(`[${MODULE_ID}] system.health (${a.name}):`, JSON.stringify(a.system?.health));
+        console.log(`[${MODULE_ID}] Диагностика ран (совместимо с wod-master-panel).`,
+            `system.health.damage (${a.name}):`, JSON.stringify(foundry.utils.getProperty(a, HEALTH_CONFIG.healthPath)),
+            `system.health.penalite:`, JSON.stringify(foundry.utils.getProperty(a, HEALTH_CONFIG.healthStatePath)),
+            `-> wound:`, JSON.stringify(getWoundInfo(a)));
     } catch (e) { /* не критично */ }
 });
 
@@ -351,23 +247,25 @@ function setupFirearmsLogic(html, isGM) {
             const accuracy = weapon.system.attack?.accuracy || 0;
             const specialty = actor.system.abilities?.[abilityKey]?.speciality || "";
 
-            // --- ШТРАФ ОТ РАН (WoD v20) ---
-            // Здоров: 0 | Penalized: -1 | Mangled: -2 | Crippled/При смерти: бросок невозможен
+            // --- ШТРАФ ОТ РАН (состояние берется из материнской системы Foundry, как в wod-master-panel) ---
+            // Помят: 0 | Легко ранен/Ранен: -1 | Серьезно/Тяжело ранен: -2 | Едва жив: -5 | При смерти: бросок невозможен
             let woundPenalty = 0;
+            let woundStateName = "";
             let isIncapacitated = false;
             if (!ignoreWounds) {
-                const { totalDamage, maxHealth } = readHealthData(actor);
-                const resolved = resolveWoundPenalty(actor, totalDamage, maxHealth);
-                if (resolved === null) {
-                    isIncapacitated = true; // При смерти
+                const wound = getWoundInfo(actor);
+                woundStateName = wound.stateName;
+                if (wound.dying) {
+                    isIncapacitated = true; // При смерти (penalty === null)
                 } else {
-                    woundPenalty = Number(resolved) || 0;
+                    woundPenalty = wound.penalty;
                 }
             }
 
+            // Дочерний модуль блокирует действие и закрывает панель (оставлено намеренно, в отличие от родителя)
             if (isIncapacitated) {
                 html.closest('.dialog').find('.header-button.close').click();
-                const incapData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> находится при смерти и не может совершать действия.</p>` };
+                const incapData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> находится при смерти (${woundStateName}) и не может совершать действия.</p>` };
                 await ChatMessage.create(incapData);
                 return;
             }
@@ -424,7 +322,7 @@ function setupFirearmsLogic(html, isGM) {
             const attackHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-attack.html`, {
                 actorName: actor.name,
                 weaponName: weapon.name,
-                pool: `${attrKey} (${attrVal}) + ${abilityKey} (${abilityVal}) ${accuracy ? `+ Acc (${accuracy})` : ''} ${config.bonus ? `+ Режим (${config.bonus})` : ''} ${woundPenalty ? `Штраф ран (${woundPenalty})` : ''} ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalPool}`,
+                pool: `${attrKey} (${attrVal}) + ${abilityKey} (${abilityVal}) ${accuracy ? `+ Acc (${accuracy})` : ''} ${config.bonus ? `+ Режим (${config.bonus})` : ''} ${woundPenalty ? `Штраф ран: ${woundStateName} (${woundPenalty})` : ''} ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalPool}`,
                 difficulty: finalDiff,
                 diceHTML: diceHTML + resultText + willText
             });
