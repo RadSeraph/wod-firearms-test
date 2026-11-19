@@ -1,9 +1,10 @@
 // ==========================================
 // МОДУЛЬ: WoD Firearms (Test)
-// Файл: scripts/main.js (Версия 1.3.5 - Финал)
+// Файл: scripts/main.js (Версия 1.4.0 - Штраф ран и Воля)
 // ==========================================
 
 const MODULE_ID = "wod-firearms-test";
+const CONFIG = { healthPath: "system.health.damage" }; // Путь к здоровью для штрафов
 
 const FIRE_MODES = {
     single: { label: "Одиночный", cost: 1, bonus: 0, diffMod: 0, isBurst: false },
@@ -154,6 +155,12 @@ function setupFirearmsLogic(html, isGM) {
             const finalDiff = Number(html.find('.wod-diff-input').val());
             const damageType = html.find('.wod-dmg-type-btn.active').data('val');
 
+            // --- ПРОВЕРКА ВОЛИ ---
+            if (useWill) {
+                const curWP = Number(foundry.utils.getProperty(actor, "system.advantages.willpower.temporary")) || 0;
+                if (curWP <= 0) return ui.notifications.error(`${actor.name}: недостаточно Воли!`);
+            }
+
             const attrKey = weapon.system.attack?.attribute || "dexterity";
             const abilityKey = weapon.system.attack?.ability || "firearms";
             const attrObj = actor.system.attributes?.[attrKey] || {};
@@ -161,14 +168,24 @@ function setupFirearmsLogic(html, isGM) {
             const abilityVal = actor.system.abilities?.[abilityKey]?.value || 0;
             const accuracy = weapon.system.attack?.accuracy || 0;
             const specialty = actor.system.abilities?.[abilityKey]?.speciality || "";
+
+            // --- ШТРАФ ОТ РАН ---
+            let woundPenalty = 0;
+            const health = foundry.utils.getProperty(actor, CONFIG.healthPath);
+            if (health) {
+                const totalDamage = (Number(health.bashing) || 0) + (Number(health.lethal) || 0) + (Number(health.aggravated) || 0);
+                if (totalDamage >= 6) woundPenalty = -5;
+                else if (totalDamage >= 4) woundPenalty = -2;
+                else if (totalDamage >= 2) woundPenalty = -1;
+            }
             
-            const basePool = Math.max(0, attrVal + abilityVal + accuracy + config.bonus);
+            const basePool = attrVal + abilityVal + accuracy + config.bonus + woundPenalty;
             const finalPool = Math.max(0, Math.floor(basePool + manualBonus));
 
             html.closest('.dialog').find('.header-button.close').click();
 
             if (finalPool <= 0) {
-                const failData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> пытается выстрелить из ${weapon.name}, но пул кубов равен 0. Действие провалено.</p>` };
+                const failData = { speaker: ChatMessage.getSpeaker({ actor: actor }), content: `<p><strong>${actor.name}</strong> пытается выстрелить из ${weapon.name}, но пул кубов равен 0 (Штраф от ран: ${woundPenalty}). Действие провалено.</p>` };
                 if (isBlind) { failData.blind = true; failData.whisper = ChatMessage.getWhisperRecipients("GM").map(u => u.id); }
                 await ChatMessage.create(failData);
                 return;
@@ -202,7 +219,7 @@ function setupFirearmsLogic(html, isGM) {
                     willText = `<div style="color: #2c6b81; font-weight: bold; margin-top: 5px; font-style: italic;">Лишь сильная воля помогает преодолеть трудности!</div>`;
                 }
                 netSucc += 1;
-                const curWP = actor.system.advantages?.willpower?.temporary || 0;
+                const curWP = Number(foundry.utils.getProperty(actor, "system.advantages.willpower.temporary")) || 0;
                 await actor.update({ "system.advantages.willpower.temporary": Math.max(0, curWP - 1) });
             }
 
@@ -214,7 +231,7 @@ function setupFirearmsLogic(html, isGM) {
             const attackHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-attack.html`, {
                 actorName: actor.name,
                 weaponName: weapon.name,
-                pool: `${attrKey} (${attrVal}) + ${abilityKey} (${abilityVal}) ${accuracy ? `+ Acc (${accuracy})` : ''} ${config.bonus ? `+ Режим (${config.bonus})` : ''} ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalPool}`,
+                pool: `${attrKey} (${attrVal}) + ${abilityKey} (${abilityVal}) ${accuracy ? `+ Acc (${accuracy})` : ''} ${config.bonus ? `+ Режим (${config.bonus})` : ''} ${woundPenalty ? `Штраф ран (${woundPenalty})` : ''} ${manualBonus ? `+ Вручную (${manualBonus})` : ''} = ${finalPool}`,
                 difficulty: finalDiff,
                 diceHTML: diceHTML + resultText + willText
             });
@@ -306,12 +323,8 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
 
                     const bonusDice = Math.max(0, netAttackSucc - 1);
                     
-                    // Сначала прибавляем все положительные модификаторы, затем вычитаем штрафы
-                    let totalPool = baseDamage + bonusDice;
-                    if (dmgManualBonus > 0) totalPool += dmgManualBonus; // Бонусы вперед
-                    else if (dmgManualBonus < 0) totalPool += dmgManualBonus; // Штрафы назад
-                    
-                    // Защита: урон не может быть меньше 1
+                    // Сначала бонусы, потом штрафы, защита минимума 1
+                    let totalPool = baseDamage + bonusDice + dmgManualBonus;
                     const finalDmgPool = Math.max(1, Math.floor(totalPool));
 
                     const dmgRoll = new Roll(`${finalDmgPool}d10`);
@@ -330,7 +343,7 @@ async function openDamageDialog(actor, weapon, attackSuccesses, damageType, isBl
                     const damageHtml = await renderTemplate(`modules/${MODULE_ID}/templates/chat-damage.html`, {
                         actorName: actor.name,
                         weaponName: weapon.name,
-                        pool: `Базовый (${baseDamage}) + Бонус (${bonusDice}) ${dmgManualBonus ? `${dmgManualBonus > 0 ? '+' : ''}${dmgManualBonus} (Вручную)` : ''} = ${finalDmgPool}`,
+                        pool: `Базовый (${baseDamage}) + Успехи (${bonusDice}) ${dmgManualBonus ? `${dmgManualBonus > 0 ? '+' : ''}${dmgManualBonus} (Вручную)` : ''} = ${finalDmgPool}`,
                         difficulty: finalDiff,
                         diceHTML: dmgDiceHTML,
                         damageTotal: dmgSucc,
